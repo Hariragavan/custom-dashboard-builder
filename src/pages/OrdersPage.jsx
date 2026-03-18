@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Plus } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Plus, Search } from 'lucide-react';
 import OrdersTable from '../components/orders/OrdersTable';
 import OrderForm from '../components/orders/OrderForm';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { getOrders, createOrder, updateOrder, deleteOrder } from '../services/api';
+
+const STATUS_FILTERS = ['All', 'Pending', 'In Progress', 'Completed'];
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState([]);
@@ -11,6 +13,8 @@ export default function OrdersPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -25,6 +29,36 @@ export default function OrdersPage() {
   }, []);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
+
+  const filteredOrders = useMemo(() => {
+    let result = orders;
+
+    // Status filter
+    if (statusFilter !== 'All') {
+      const statusMap = {
+        'Pending': 'Pending',
+        'In Progress': 'In progress',
+        'Completed': 'Completed'
+      };
+      result = result.filter(o => o.status === statusMap[statusFilter]);
+    }
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(o =>
+        (o.id && o.id.toLowerCase().includes(q)) ||
+        (`${o.first_name} ${o.last_name}`.toLowerCase().includes(q)) ||
+        (o.email && o.email.toLowerCase().includes(q)) ||
+        (o.phone && o.phone.toLowerCase().includes(q)) ||
+        (o.product && o.product.toLowerCase().includes(q)) ||
+        (o.status && o.status.toLowerCase().includes(q)) ||
+        (o.created_by && o.created_by.toLowerCase().includes(q))
+      );
+    }
+
+    return result;
+  }, [orders, statusFilter, searchQuery]);
 
   const handleCreate = () => {
     setEditingOrder(null);
@@ -62,6 +96,14 @@ export default function OrdersPage() {
     }
   };
 
+  // Count orders by status for badge numbers
+  const statusCounts = useMemo(() => ({
+    All: orders.length,
+    Pending: orders.filter(o => o.status === 'Pending').length,
+    'In Progress': orders.filter(o => o.status === 'In progress').length,
+    Completed: orders.filter(o => o.status === 'Completed').length,
+  }), [orders]);
+
   return (
     <>
       <header className="page-header">
@@ -73,10 +115,41 @@ export default function OrdersPage() {
           </button>
         </div>
       </header>
-      <div className="page-content">
+
+      {/* Toolbar: Status Filters + Search */}
+      <div className="orders-toolbar">
+        <div className="status-filter-tabs">
+          {STATUS_FILTERS.map(status => (
+            <button
+              key={status}
+              className={`status-tab ${statusFilter === status ? 'active' : ''} ${status === 'Completed' && statusFilter === status ? 'status-tab-completed' : ''} ${status === 'Pending' && statusFilter === status ? 'status-tab-pending' : ''} ${status === 'In Progress' && statusFilter === status ? 'status-tab-progress' : ''}`}
+              onClick={() => setStatusFilter(status)}
+              id={`filter-${status.toLowerCase().replace(' ', '-')}`}
+            >
+              {status}
+              {statusCounts[status] > 0 && (
+                <span className="status-tab-count">{statusCounts[status]}</span>
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="orders-search-wrapper">
+          <Search size={16} className="orders-search-icon" />
+          <input
+            type="text"
+            className="orders-search-input"
+            placeholder="Search orders, customer, product..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            id="orders-search"
+          />
+        </div>
+      </div>
+
+      <div className="page-content" style={{ paddingTop: 0 }}>
         {loading ? (
           <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>Loading orders...</div>
-        ) : orders.length === 0 ? (
+        ) : filteredOrders.length === 0 && orders.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">
               <ShoppingCartEmpty />
@@ -88,9 +161,17 @@ export default function OrdersPage() {
               Create Order
             </button>
           </div>
+        ) : filteredOrders.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">
+              <Search size={36} />
+            </div>
+            <h3>No matching orders</h3>
+            <p>Try adjusting your search or filter to find what you're looking for.</p>
+          </div>
         ) : (
           <div className="card" style={{ overflow: 'hidden' }}>
-            <OrdersTable orders={orders} onEdit={handleEdit} onDelete={setConfirmDelete} />
+            <OrdersTable orders={filteredOrders} onEdit={handleEdit} onDelete={setConfirmDelete} />
           </div>
         )}
       </div>
